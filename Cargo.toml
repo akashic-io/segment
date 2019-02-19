@@ -4,8 +4,18 @@ version = "0.1.0"
 authors = ["Richard Giliam <nirosys@gmail.com>"]
 edition = "2018"
 
+[lib]
+bench = false
+
 [dependencies]
 segment-derive = { path = "segment-derive" }
+
+[dev-dependencies]
+criterion = "0.2"
+
+[[bench]]
+name = "serialize"
+harness = false
 
 [[examples]]
 name = "builder"
