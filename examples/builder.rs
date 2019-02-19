@@ -1,7 +1,7 @@
 
 use std::time::{SystemTime, Duration};
 
-use segment::{Builder, Metric};
+use segment::Metric;
 
 // Define a metric..
 #[derive(Metric)]
@@ -10,11 +10,15 @@ pub struct CpuInfo {
     #[segment(time)]
     timestamp: Duration,
 
+    #[segment(tag)]
+    descr: & 'static str,
+
     #[segment(tag, rename="Host")]
     host: String,
 
     #[segment(tag)]
     cpuid: u32,
+
 
     #[segment(field, rename="system")]
     sys_time: u64,
@@ -24,6 +28,8 @@ pub struct CpuInfo {
     idl_time: u64,
     #[segment(field, rename="load")]
     system_load: f32,
+    #[segment(field)]
+    some_str: & 'static str,
 }
 
 fn main() {
@@ -33,11 +39,13 @@ fn main() {
             Err(_) => panic!("Unable to get current time, as duration"),
         },
         host: "myhost".to_string(),
+        descr: "a wonderful, tag",
         cpuid: 0,
         sys_time: 124,
         usr_time: 256,
         idl_time: 0,
         system_load: 0.75,
+        some_str: "\"foo,bar\"",
     };
 
     println!("Time: {:?}", m.time());
@@ -49,35 +57,11 @@ fn main() {
 
     println!("Fields:");
     for f in m.fields() {
-        println!("   - \"{}\" = {}", f.name, f.value);
+        println!("   - \"{}\" = {}", f.name, f.value.to_string());
     }
 
-    println!("Line Proto: '{}'", m.to_lineproto());
-}
+    let mut s = String::with_capacity(64);
+    m.build(&mut s);
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use test::Bencher;
-
-    #[bench]
-    fn bench_lineproto(b: &mut Bencher) {
-        let m = CpuInfo {
-            timestamp: match SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) {
-                Ok(d) => d,
-                Err(_) => panic!("Unable to get current time, as duration"),
-            },
-            host: "myhost".to_string(),
-            cpuid: 0,
-            sys_time: 124,
-            usr_time: 256,
-            idl_time: 0,
-        };
-        b.iter(move || {
-            let line = m.to_lineproto();
-            if line.len() == 0 {
-                println!("Invalid line protocol");
-            }
-        });
-    }
+    println!("Line Proto: '{}'", s);
 }
