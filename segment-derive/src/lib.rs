@@ -60,7 +60,7 @@ impl SegmentMetric {
         }
 
         // Gather all fields from the metric.
-        metric.process_fields(&data.data);
+        metric.process_fields(&data.data)?;
 
         Ok(metric)
     }
@@ -82,11 +82,16 @@ impl SegmentMetric {
     }
 
     pub fn tags_fn(&self) -> proc_macro2::TokenStream {
-        let names = self.tags.iter().map(|t| t.name.clone());
+        let names: Vec<String> = self.tags.iter().map(|t| t.name.clone()).collect();
         let vals = self.tags.iter().map(|t| t.struct_field.ident.clone());
         quote!{
             fn tags(&self) -> Vec<segment::Tag> {
-                vec!(#( segment::Tag{name: #names.to_string(), value: self.#vals.to_string()}, )*)
+                vec!(#(
+                        segment::Tag{
+                            name: #names.to_string(),
+                            value: segment::escape_tagstr(self.#vals.to_string()),
+                        },
+                )*)
             }
         }
     }
@@ -106,25 +111,63 @@ impl SegmentMetric {
         }
     }
 
-    // Returns the name, or index, of the field which contains the Metric's timestamp
-    fn find_fields(data: &Data) -> Vec<SegmentField> {
-        if let Data::Struct(ref data) = *data {
-            let fields = match data.fields {
-                Fields::Named(ref fields) => fields.named.clone(),
-                Fields::Unnamed(ref fields) => fields.unnamed.clone(),
-                _ => panic!("Unknown fields")
-            };
-            let mut segment_fields: Vec<SegmentField> = Vec::new();
-            for (field_idx, field) in fields.iter().enumerate() {
-                match make_field(field, field_idx) {
-                    None => (),
-                    Some(seg_field) =>
-                        segment_fields.push(seg_field)
+
+    fn tag_vals(&self) -> proc_macro2::TokenStream {
+        let names = self.tags.iter().map(|t| t.name.clone());
+        let values = self.tags.iter().map(|t| t.struct_field.ident.clone());
+        quote!{
+            #(
+            s.push_str(concat!(",",#names,"="));
+            &segment::build_escapedtagstr(self.#values.to_string(), s);
+            )*
+        }
+    }
+
+    fn field_vals(&self) -> proc_macro2::TokenStream {
+        let fields: Vec<proc_macro2::TokenStream> = self.fields.iter().map(|f| {
+            let n = &f.name;
+            let v = &f.struct_field.ident;
+            quote!{
+                s.push_str(concat!(#n,"="));
+                let val = segment::FieldValue::from(self.#v);
+                val.build(s);
+            }
+        }).collect();
+        quote!{
+            #( #fields
+               s.push(',');
+             )*
+        }
+    }
+
+    pub fn lineproto_fn(&self) -> proc_macro2::TokenStream {
+        // <measurement>,<tags> <fields> <time>
+        let measurement = &self.measurement;
+        let push_tags = self.tag_vals();
+        let push_fields = self.field_vals();
+        match &self.time_field {
+            None => panic!("no field declared as time of metric"),
+            Some(t) => {
+                let tfield = &t.struct_field.ident;
+                quote!{
+                    fn to_lineproto(&self) -> String {
+                        let mut s = String::with_capacity(64);
+                        self.build(&mut s);
+                        s
+                    }
+
+                    fn build(&self, s: &mut String) -> Result<(), segment::MetricError> {
+                        s.push_str(#measurement);
+                        #push_tags
+                        s.push(' ');
+                        #push_fields
+                        let _ = s.pop();
+                        s.push(' ');
+                        s.push_str(&self.#tfield.as_secs().to_string());
+                        Ok(())
+                    }
                 }
             }
-            segment_fields
-        } else {
-            panic!("We only handle structs here..");
         }
     }
 
@@ -155,6 +198,11 @@ impl SegmentMetric {
         } else {
             panic!("only structs supported");
         }
+
+        // TODO: validate that this ordering matches the Go Compare ordering.
+        //  per: https://docs.influxdata.com/influxdb/v1.7/write_protocols/line_protocol_tutorial/#tag-set
+        // Sort our tags lexographically, per Influx Data recommendation.
+        self.tags.sort_by(|a, b| a.name.partial_cmp(&b.name).unwrap());
         Ok(())
     }
 }
@@ -173,6 +221,7 @@ pub fn metric_macro(input: TokenStream) -> TokenStream {
     let time = metric.time_fn();
     let tags = metric.tags_fn();
     let fields = metric.fields_fn();
+    let to_lineproto = metric.lineproto_fn();
 
     TokenStream::from(quote!{
         impl Metric for #name {
@@ -180,33 +229,9 @@ pub fn metric_macro(input: TokenStream) -> TokenStream {
             #measurement
             #tags
             #fields
-
-            fn to_lineproto(&self) -> String {
-                "not_implemented".to_string()
-            }
+            #to_lineproto
         }
     })
-
-// Returns the name, or index, of the field which contains the Metric's timestamp
-fn find_fields(data: &Data) -> Vec<SegmentField> {
-    if let Data::Struct(ref data) = *data {
-        let fields = match data.fields {
-            Fields::Named(ref fields) => fields.named.clone(),
-            Fields::Unnamed(ref fields) => fields.unnamed.clone(),
-            _ => panic!("Unknown fields")
-        };
-        let mut segment_fields: Vec<SegmentField> = Vec::new();
-        for (field_idx, field) in fields.iter().enumerate() {
-           match make_field(field, field_idx) {
-               None => (),
-               Some(seg_field) =>
-                   segment_fields.push(seg_field)
-           }
-        }
-        segment_fields
-    } else {
-        panic!("We only handle structs here..");
-    }
 }
 
 // TODO: Sanity check types: tags need to be strings.. time needs to be duration.
