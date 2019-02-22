@@ -9,6 +9,7 @@ use syn::Meta::{List, NameValue, Word};
 use syn::NestedMeta::Meta;
 use quote::quote;
 
+
 /// The type of line protocol element a field represents.
 enum SegmentFieldType {
     Unknown,
@@ -16,7 +17,6 @@ enum SegmentFieldType {
     Field,
     Time,
 }
-
 
 enum ParsingError {
 }
@@ -89,7 +89,7 @@ impl SegmentMetric {
                 vec!(#(
                         segment::Tag{
                             name: #names.to_string(),
-                            value: segment::escape_tagstr(self.#vals.to_string()),
+                            value: segment::escape_tagstr(&self.#vals.to_string()),
                         },
                 )*)
             }
@@ -113,30 +113,55 @@ impl SegmentMetric {
 
 
     fn tag_vals(&self) -> proc_macro2::TokenStream {
-        let names = self.tags.iter().map(|t| t.name.clone());
-        let values = self.tags.iter().map(|t| t.struct_field.ident.clone());
+        let tags = self.tags.iter().map(|t| {
+            let n = &t.name;
+            let v = &t.struct_field.ident;
+            let ty = &t.struct_field.ty;
+            quote!{
+                s.push_str(concat!(",", #n, "="));
+                field_value!(s, self.#v #ty);
+            }
+        });
+
         quote!{
-            #(
-            s.push_str(concat!(",",#names,"="));
-            &segment::build_escapedtagstr(self.#values.to_string(), s);
-            )*
+            #( #tags )*
         }
     }
 
     fn field_vals(&self) -> proc_macro2::TokenStream {
-        let fields: Vec<proc_macro2::TokenStream> = self.fields.iter().map(|f| {
+        let mut fields = self.fields.iter().map(|f| {
             let n = &f.name;
             let v = &f.struct_field.ident;
+
+            let ty = &f.struct_field.ty;
+
+            (
+                quote!(concat!(#n,"=")),
+                quote!(field_value!(s, self.#v #ty);)
+                //quote!(segment::FieldValue::from(self.#v).build(s);)
+            )
+        });
+
+        let fields_head = match fields.next() {
+            Some((n, v)) => {
+                Some(quote!{
+                    s.push_str(#n);
+                    #v
+                })
+            },
+            None =>
+                None
+        };
+
+        let fields_tail = fields.map(|(n, v)| {
             quote!{
-                s.push_str(concat!(#n,"="));
-                let val = segment::FieldValue::from(self.#v);
-                val.build(s);
+                s.push_str(concat!(",", #n));
+                #v
             }
-        }).collect();
+        });
         quote!{
-            #( #fields
-               s.push(',');
-             )*
+            #fields_head
+            #( #fields_tail )*
         }
     }
 
@@ -161,7 +186,6 @@ impl SegmentMetric {
                         #push_tags
                         s.push(' ');
                         #push_fields
-                        let _ = s.pop();
                         s.push(' ');
                         s.push_str(&self.#tfield.as_secs().to_string());
                         Ok(())
@@ -224,6 +248,7 @@ pub fn metric_macro(input: TokenStream) -> TokenStream {
     let to_lineproto = metric.lineproto_fn();
 
     TokenStream::from(quote!{
+        use std::fmt;
         impl Metric for #name {
             #time
             #measurement

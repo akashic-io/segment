@@ -9,6 +9,8 @@ bench = false
 
 [dependencies]
 segment-derive = { path = "segment-derive" }
+dtoa = "0.4"
+itoa = "0.4"
 
 [dev-dependencies]
 criterion = "0.2"
