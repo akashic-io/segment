@@ -1,98 +1,33 @@
-use std::fmt;
 use std::string::ToString;
 use std::time::Duration;
 
 pub use segment_derive::*;
 
 #[macro_export]
-macro_rules! field_value {
-    ( $b:ident, $($i:ident).+ u8 ) => {
+macro_rules! segment_write {
+    ( $b:ident, $($i:ident).+, String ) => { $b.push_str(&$($i).*); };
+    ( $b:ident, $($i:ident).+, &str) => { $b.push_str($($i).*); };
+    ( $b:ident, $($i:ident).+, &'static str) => { $b.push_str($($i).*); };
+    ( $b:ident, $($i:ident).+, u8 ) => { segment::segment_write!($b, $($i).*, itoa) };
+    ( $b:ident, $($i:ident).+, u16 ) => { segment::segment_write!($b, $($i).*, itoa) };
+    ( $b:ident, $($i:ident).+, u32 ) => { segment::segment_write!($b, $($i).*, itoa) };
+    ( $b:ident, $($i:ident).+, u64 ) => { segment::segment_write!($b, $($i).*, itoa) };
+    ( $b:ident, $($i:ident).+, f32 ) => { segment::segment_write!($b, $($i).*, dtoa) };
+    ( $b:ident, $($i:ident).+, f64 ) => { segment::segment_write!($b, $($i).*, dtoa) };
+    ( $b:ident, $($i:ident).+, itoa) => {
         unsafe {
             let mut bytes = $b.as_mut_vec();
-            itoa::write(&mut bytes, $($i).*);
+            itoa::write(&mut bytes, $($i).*)?;
             $b.push('i');
         }
     };
-    ( $b:ident, $($i:ident).+ u16 ) => {
+    ( $b:ident, $($i:ident).+, dtoa) => {
         unsafe {
             let mut bytes = $b.as_mut_vec();
-            itoa::write(&mut bytes, $($i).*);
-            $b.push('i');
+            dtoa::write(&mut bytes, $($i).*)?;
         }
-    };
-    ( $b:ident, $($i:ident).+ u32 ) => {
-        unsafe {
-            let mut bytes = $b.as_mut_vec();
-            itoa::write(&mut bytes, $($i).*);
-            $b.push('i');
-        }
-    };
-    ( $b:ident, $($i:ident).+ u64 ) => {
-        unsafe {
-            let mut bytes = $b.as_mut_vec();
-            itoa::write(&mut bytes, $($i).*);
-            $b.push('i');
-        }
-    };
-    ( $b:ident, $($i:ident).+ f32 ) => {
-        unsafe {
-            let mut bytes = $b.as_mut_vec();
-            dtoa::write(&mut bytes, $($i).*);
-        }
-    };
-    ( $b:ident, $($i:ident).+ f64 ) => {
-        unsafe {
-            let mut bytes = $b.as_mut_vec();
-            dtoa::write(&mut bytes, $($i).*);
-        }
-    };
-    ( $b:ident, $($i:ident).+ $t:ty ) => {
-        segment::FieldValue::from($($i).*).build($b);
     };
 }
-
-//#[macro_export]
-//macro_rules! tag_value {
-//    ( $b:ident, $($i:ident).+ u8 ) => {
-//        unsafe {
-//            let mut bytes = $b.as_mut_vec();
-//            itoa::write(&mut bytes, $($i).*).expect(concat!("unable to write ", stringify!($($i).*)));
-//        }
-//    };
-//    ( $b:ident, $($i:ident).+ u16 ) => {
-//        unsafe {
-//            let mut bytes = $b.as_mut_vec();
-//            itoa::write(&mut bytes, $($i).*).expect(concat!("unable to write ", stringify!($($i).*)));
-//        }
-//    };
-//    ( $b:ident, $($i:ident).+ u32 ) => {
-//        unsafe {
-//            let mut bytes = $b.as_mut_vec();
-//            itoa::write(&mut bytes, $($i).*).expect(concat!("unable to write ", stringify!($($i).*)));
-//        }
-//    };
-//    ( $b:ident, $($i:ident).+ u64 ) => {
-//        unsafe {
-//            let mut bytes = $b.as_mut_vec();
-//            itoa::write(&mut bytes, $($i).*).expect(concat!("unable to write ", stringify!($($i).*)));
-//        }
-//    };
-//    ( $b:ident, $($i:ident).+ f32 ) => {
-//        unsafe {
-//            let mut bytes = $b.as_mut_vec();
-//            dtoa::write(&mut bytes, $($i).*).expect(concat!("unable to write ", stringify!($($i).*)));
-//        }
-//    };
-//    ( $b:ident, $($i:ident).+ f64 ) => {
-//        unsafe {
-//            let mut bytes = $b.as_mut_vec();
-//            dtoa::write(&mut bytes, $($i).*).expect(concat!("unable to write ", stringify!($($i).*)));
-//        }
-//    };
-//    ( $b:ident, $($i:ident).+ $t:ty ) => {
-//        segment::FieldValue::from($($i).*).build($b);
-//    };
-//}
 
 pub enum MetricError {
 }
@@ -122,41 +57,41 @@ impl FieldValue {
             FieldValue::UInt32(u)  => {
                 unsafe {
                     let mut bytes = sb.as_mut_vec();
-                    itoa::write(&mut bytes, *u);
+                    itoa::write(&mut bytes, *u).expect("cannot write u32");
                 }
                 sb.push('i');
             },
             FieldValue::UInt64(u) => {
                 unsafe {
                     let mut bytes = sb.as_mut_vec();
-                    itoa::write(&mut bytes, *u);
+                    itoa::write(&mut bytes, *u).expect("cannot write u64");
                 }
                 sb.push('i');
             },
             FieldValue::Int32(i) => {
                 unsafe {
                     let mut bytes = sb.as_mut_vec();
-                    itoa::write(&mut bytes, *i);
+                    itoa::write(&mut bytes, *i).expect("cannot write i32");
                 }
                 sb.push('i');
             },
             FieldValue::Int64(i) => {
                 unsafe {
                     let mut bytes = sb.as_mut_vec();
-                    itoa::write(&mut bytes, *i);
+                    itoa::write(&mut bytes, *i).expect("cannot write i64");
                 }
                 sb.push('i');
             },
             FieldValue::Float32(fl) => {
                 unsafe {
                     let mut bytes = sb.as_mut_vec();
-                    dtoa::write(&mut bytes, *fl);
+                    dtoa::write(&mut bytes, *fl).expect("cannot write f32");
                 }
             },
             FieldValue::Float64(fl) => {
                 unsafe {
                     let mut bytes = sb.as_mut_vec();
-                    dtoa::write(&mut bytes, *fl);
+                    dtoa::write(&mut bytes, *fl).expect("cannot write f64");
                 }
             }
         };
@@ -231,7 +166,7 @@ pub trait Metric {
     fn fields(&self) -> Vec<Field>;
     fn tags(&self) -> Vec<Tag>;
     fn to_lineproto(&self) -> String;
-    fn build(&self, buffer: &mut String) -> Result<(), MetricError>;
+    fn build(&self, buffer: &mut String) -> std::io::Result<usize>;
 }
 
 // measurement[,tag=val[,tag=val]] field=value[,field=value]

@@ -119,7 +119,7 @@ impl SegmentMetric {
             let ty = &t.struct_field.ty;
             quote!{
                 s.push_str(concat!(",", #n, "="));
-                field_value!(s, self.#v #ty);
+                segment::segment_write!(s, self.#v, #ty);
             }
         });
 
@@ -137,8 +137,7 @@ impl SegmentMetric {
 
             (
                 quote!(concat!(#n,"=")),
-                quote!(field_value!(s, self.#v #ty);)
-                //quote!(segment::FieldValue::from(self.#v).build(s);)
+                quote!(segment::segment_write!(s, self.#v, #ty);)
             )
         });
 
@@ -181,14 +180,14 @@ impl SegmentMetric {
                         s
                     }
 
-                    fn build(&self, s: &mut String) -> Result<(), segment::MetricError> {
+                    fn build(&self, s: &mut String) -> std::io::Result<usize> {
                         s.push_str(#measurement);
                         #push_tags
                         s.push(' ');
                         #push_fields
                         s.push(' ');
                         s.push_str(&self.#tfield.as_secs().to_string());
-                        Ok(())
+                        Ok(s.len())
                     }
                 }
             }
