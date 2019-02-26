@@ -1,6 +1,6 @@
 use std::time::{SystemTime, Duration, UNIX_EPOCH};
 
-use segment::{Metric, field_value};
+use segment::Metric;
 
 #[macro_use]
 extern crate criterion;

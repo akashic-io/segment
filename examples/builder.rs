@@ -1,7 +1,7 @@
 
 use std::time::{SystemTime, Duration};
 
-use segment::{Metric, field_value};
+use segment::Metric;
 
 // Define a metric..
 #[derive(Metric)]
