@@ -1,3 +1,7 @@
+//! A library for serializing metric data into InfluxData's Line Protocol for
+//! ingestion into influxdb.
+
+
 use std::string::ToString;
 use std::time::Duration;
 
