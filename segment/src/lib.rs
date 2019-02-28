@@ -1,7 +1,6 @@
 //! A library for serializing metric data into InfluxData's Line Protocol for
 //! ingestion into influxdb.
 
-
 use std::string::ToString;
 use std::time::Duration;
 
@@ -9,27 +8,35 @@ pub use segment_derive::*;
 
 #[macro_export]
 macro_rules! segment_write {
-    ( $b:ident, $($i:ident).+, String ) => { $b.push_str(&$($i).*); };
-    ( $b:ident, $($i:ident).+, &str) => { $b.push_str($($i).*); };
-    ( $b:ident, $($i:ident).+, &'static str) => { $b.push_str($($i).*); };
-    ( $b:ident, $($i:ident).+, u8 ) => { segment::segment_write!($b, $($i).*, itoa) };
-    ( $b:ident, $($i:ident).+, u16 ) => { segment::segment_write!($b, $($i).*, itoa) };
-    ( $b:ident, $($i:ident).+, u32 ) => { segment::segment_write!($b, $($i).*, itoa) };
-    ( $b:ident, $($i:ident).+, u64 ) => { segment::segment_write!($b, $($i).*, itoa) };
-    ( $b:ident, $($i:ident).+, f32 ) => { segment::segment_write!($b, $($i).*, dtoa) };
-    ( $b:ident, $($i:ident).+, f64 ) => { segment::segment_write!($b, $($i).*, dtoa) };
-    ( $b:ident, $($i:ident).+, itoa) => {
-        unsafe {
-            let mut bytes = $b.as_mut_vec();
-            itoa::write(&mut bytes, $($i).*)?;
-            $b.push('i');
-        }
+    // Type suffix for influx integers, etc.
+    ( @type_suff, $b:ident, f32, $i:ident ) => { };
+    ( @type_suff, $b:ident, f64, $i:ident ) => { };
+    ( @type_suff, $b:ident, $t:tt, tag) => {  };
+    ( @type_suff, $b:ident, $t:tt, field ) => {  $b.push('i'); };
+
+    // Determine serialization for numerics
+    ( @num_ser, f32, $b:ident, $($i:ident).+ ) => { dtoa::write(&mut $b, $($i).*)?; };
+    ( @num_ser, f64, $b:ident, $($i:ident).+ ) => { dtoa::write(&mut $b, $($i).*)?; };
+    ( @num_ser, $t:tt, $b:ident, $($i:ident).+)  =>   { itoa::write(&mut $b, $($i).*)?; };
+
+    // Serialization for string types
+    ( @str_ser, $b:ident, $val:expr, tag ) => {
+        segment::build_escapedtagstr($val, $b);
     };
-    ( $b:ident, $($i:ident).+, dtoa) => {
+    ( @str_ser, $b:ident, $val:expr, field ) => {
+        segment::build_escapedfieldstr($val, $b);
+    };
+
+    // Main Entry
+    ( $b:ident, $($i:ident).+, String, $lf:ident ) => { segment::segment_write!(@str_ser, $b, &$($i).*, $lf); };
+    ( $b:ident, $($i:ident).+, &str, $lf:ident ) => { segment::segment_write!(@str_ser, $b, $($i).*, $lf); };
+    ( $b:ident, $($i:ident).+, &'static str, $lf:ident ) => { segment::segment_write!(@str_ser, $b, $($i).*, $lf) };
+    ( $b:ident, $($i:ident).+, $t:tt, $lf:ident ) => {
         unsafe {
             let mut bytes = $b.as_mut_vec();
-            dtoa::write(&mut bytes, $($i).*)?;
+            segment::segment_write!(@num_ser, $t, bytes, $($i).*);
         }
+        segment::segment_write!(@type_suff, $b, $t, $lf);
     };
 }
 
