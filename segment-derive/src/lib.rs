@@ -2,6 +2,7 @@
 extern crate proc_macro;
 extern crate proc_macro2;
 
+use std::fmt;
 
 use proc_macro::TokenStream;
 use syn::{parse_macro_input, DeriveInput, Data, Fields, Field, LitStr, Lit, Ident};
@@ -18,7 +19,19 @@ enum SegmentFieldType {
     Time,
 }
 
-enum ParsingError {
+#[derive(Debug, Clone)]
+enum MetricError {
+    NoFields(),
+}
+
+impl fmt::Display for MetricError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let s = match self {
+            MetricError::NoFields() => "no fields defined for metric",
+            _ => "unknown error"
+        };
+        write!(f, "{}", s)
+    }
 }
 
 struct SegmentField {
@@ -39,7 +52,7 @@ struct SegmentMetric {
 }
 
 impl SegmentMetric {
-    pub fn build(data: DeriveInput) -> Result<SegmentMetric, ParsingError> {
+    pub fn build(data: DeriveInput) -> Result<SegmentMetric, MetricError> {
         let mut metric: SegmentMetric = SegmentMetric{
             name: data.ident.clone(),
             measurement: syn::LitStr::new(&data.ident.to_string(), data.ident.span()),
@@ -62,7 +75,11 @@ impl SegmentMetric {
         // Gather all fields from the metric.
         metric.process_fields(&data.data)?;
 
-        Ok(metric)
+        if metric.fields.len() == 0 {
+            Err(MetricError::NoFields())
+        } else {
+            Ok(metric)
+        }
     }
 
     pub fn measurement_fn(&self) -> proc_macro2::TokenStream {
@@ -119,7 +136,7 @@ impl SegmentMetric {
             let ty = &t.struct_field.ty;
             quote!{
                 s.push_str(concat!(",", #n, "="));
-                segment::segment_write!(s, self.#v, #ty);
+                segment::segment_write!(s, self.#v, #ty, tag);
             }
         });
 
@@ -137,7 +154,7 @@ impl SegmentMetric {
 
             (
                 quote!(concat!(#n,"=")),
-                quote!(segment::segment_write!(s, self.#v, #ty);)
+                quote!(segment::segment_write!(s, self.#v, #ty, field);)
             )
         });
 
@@ -173,6 +190,10 @@ impl SegmentMetric {
             None => panic!("no field declared as time of metric"),
             Some(t) => {
                 let tfield = &t.struct_field.ident;
+                let ns = quote!{
+                    let sec_ns = self.#tfield.as_secs() * 1e9 as u64;
+                    let ns = sec_ns + self.#tfield.subsec_nanos() as u64;
+                };
                 quote!{
                     fn to_lineproto(&self) -> String {
                         let mut s = String::with_capacity(64);
@@ -186,7 +207,11 @@ impl SegmentMetric {
                         s.push(' ');
                         #push_fields
                         s.push(' ');
-                        s.push_str(&self.#tfield.as_secs().to_string());
+                        #ns
+                        unsafe {
+                            let mut bytes = s.as_mut_vec();
+                            itoa::write(&mut bytes, ns);
+                        }
                         Ok(s.len())
                     }
                 }
@@ -194,7 +219,7 @@ impl SegmentMetric {
         }
     }
 
-    fn process_fields(&mut self, input: &Data) -> Result<(), ParsingError> {
+    fn process_fields(&mut self, input: &Data) -> Result<(), MetricError> {
         if let Data::Struct(ref data) = *input {
             let fields = match data.fields {
                 Fields::Named(ref fields) => fields.named.clone(),
@@ -222,10 +247,9 @@ impl SegmentMetric {
             panic!("only structs supported");
         }
 
-        // TODO: validate that this ordering matches the Go Compare ordering.
-        //  per: https://docs.influxdata.com/influxdb/v1.7/write_protocols/line_protocol_tutorial/#tag-set
         // Sort our tags lexographically, per Influx Data recommendation.
         self.tags.sort_by(|a, b| a.name.partial_cmp(&b.name).unwrap());
+
         Ok(())
     }
 }
@@ -247,7 +271,6 @@ pub fn metric_macro(input: TokenStream) -> TokenStream {
     let to_lineproto = metric.lineproto_fn();
 
     TokenStream::from(quote!{
-        use std::fmt;
         impl Metric for #name {
             #time
             #measurement
