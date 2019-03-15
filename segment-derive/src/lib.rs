@@ -28,7 +28,6 @@ impl fmt::Display for MetricError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let s = match self {
             MetricError::NoFields() => "no fields defined for metric",
-            _ => "unknown error"
         };
         write!(f, "{}", s)
     }
@@ -122,7 +121,7 @@ impl SegmentMetric {
             fn fields(&self) -> Vec<segment::Field> {
                 vec!(#(segment::Field{
                     name: #names.to_string(),
-                    value: segment::FieldValue::from(self.#vals),
+                    value: segment::FieldValue::from(self.#vals.clone()),
                 }, )*)
             }
         }
@@ -260,7 +259,7 @@ pub fn metric_macro(input: TokenStream) -> TokenStream {
 
     let metric = match SegmentMetric::build(input) {
         Ok(m) => m,
-        Err(e) => panic!(e),
+        Err(e) => panic!("Error"),
     };
 
     let name = &metric.name;
