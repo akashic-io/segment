@@ -7,6 +7,19 @@ use std::time::Duration;
 pub use segment_derive::*;
 
 #[macro_export]
+/// Serialize tag, and field, values to the provided String buffer.
+///
+/// This macro specifically handles serialization by data type and line proto
+/// type (tag vs field).
+///
+/// segment-derive uses this macro while generating the Metric::build(..)
+/// method for the metric type. During the generation of that function information
+/// about the field/tag's underlying data type is included so that optimal
+/// serialization can be performed, along with escaping for strings, etc.
+///
+/// This macro is not intended to be used outside of segment-derive, but it is
+/// not impossible to use it to create a custom metric that does not use
+/// segment-derive to generate the Metric implementation.
 macro_rules! segment_write {
     // Type suffix for influx integers, etc.
     ( @type_suff, $b:ident, f32, $i:ident ) => { };
@@ -40,9 +53,7 @@ macro_rules! segment_write {
     };
 }
 
-pub enum MetricError {
-}
-
+/// Contains the value (and type) of a metric field.
 pub enum FieldValue {
     Str(String),
     UInt32(u32),
@@ -68,41 +79,41 @@ impl FieldValue {
             FieldValue::UInt32(u)  => {
                 unsafe {
                     let mut bytes = sb.as_mut_vec();
-                    itoa::write(&mut bytes, *u).expect("cannot write u32");
+                    let _ = itoa::write(&mut bytes, *u).expect("cannot write u32");
                 }
                 sb.push('i');
             },
             FieldValue::UInt64(u) => {
                 unsafe {
                     let mut bytes = sb.as_mut_vec();
-                    itoa::write(&mut bytes, *u).expect("cannot write u64");
+                    let _ = itoa::write(&mut bytes, *u).expect("cannot write u64");
                 }
                 sb.push('i');
             },
             FieldValue::Int32(i) => {
                 unsafe {
                     let mut bytes = sb.as_mut_vec();
-                    itoa::write(&mut bytes, *i).expect("cannot write i32");
+                    let _ = itoa::write(&mut bytes, *i).expect("cannot write i32");
                 }
                 sb.push('i');
             },
             FieldValue::Int64(i) => {
                 unsafe {
                     let mut bytes = sb.as_mut_vec();
-                    itoa::write(&mut bytes, *i).expect("cannot write i64");
+                    let _ = itoa::write(&mut bytes, *i).expect("cannot write i64");
                 }
                 sb.push('i');
             },
             FieldValue::Float32(fl) => {
                 unsafe {
                     let mut bytes = sb.as_mut_vec();
-                    dtoa::write(&mut bytes, *fl).expect("cannot write f32");
+                    let _ = dtoa::write(&mut bytes, *fl).expect("cannot write f32");
                 }
             },
             FieldValue::Float64(fl) => {
                 unsafe {
                     let mut bytes = sb.as_mut_vec();
-                    dtoa::write(&mut bytes, *fl).expect("cannot write f64");
+                    let _ = dtoa::write(&mut bytes, *fl).expect("cannot write f64");
                 }
             }
         };
@@ -159,18 +170,24 @@ impl From<f64> for FieldValue {
     }
 }
 
+/// A key/value pair destined for becoming a Line Protocol Field.
 pub struct Field {
+    /// The name or key of the field.
     pub name: String,
+    /// The value of the field.
     pub value:  FieldValue,
 }
 
+/// A key/value pair destined for becoming a Line Protocol Tag.
 pub struct Tag {
+    /// The name/key of the tag.
     pub name: String,
+    /// The value of the tag.
     pub value: String,
 }
 
 
-// A metric represents a single point in a measurement.
+/// A metric represents a single point in a measurement.
 pub trait Metric {
     fn time(&self) -> Duration;
     fn measurement(&self) -> String;
@@ -182,38 +199,60 @@ pub trait Metric {
 
 // measurement[,tag=val[,tag=val]] field=value[,field=value]
 
+/// Escapes the provided tag value `s` and adds the newly escaped values to `buff`.
+/// > NOTE: Source for this is an adaptation from std::String::replace
 pub fn build_escapedtagstr(s: &str, buff: &mut String) {
-    for c in s.chars() {
-        match c {
-            ',' | ' ' | '=' => {
-                buff.push('\\');
-                buff.push(c);
-            },
-            _ =>
-                buff.push(c)
-        }
-    }
-}
-
-// NOTE: Source for this is an adaptation from std::String::replace
-pub fn build_escapedfieldstr(s: &str, buff: &mut String) {
-    let from = "\"";
-    let to = "\\\"";
     let mut last_end = 0;
-    for (start, part) in s.match_indices(from) {
+    let matcher = |c: char| match c {
+        '\n' | '"' | '.' | ' ' | '=' => true,
+        _ => false,
+    };
+    for (start, part) in s.match_indices(matcher) {
         buff.push_str(unsafe { s.get_unchecked(last_end..start) });
-        buff.push_str(to);
+        match part {
+            "\n" => buff.push_str("\\n"),
+            _ => {
+                buff.push('\\');
+                buff.push_str(part);
+            },
+        }
         last_end = start + part.len();
     }
     buff.push_str(unsafe { s.get_unchecked(last_end..s.len()) });
 }
 
+/// Escapes the provided field string value `s` and adds the newly escaped values to `buff`.
+/// > NOTE: Source for this is an adaptation from std::String::replace
+pub fn build_escapedfieldstr(s: &str, buff: &mut String) {
+    let mut last_end = 0;
+    let matcher = |c: char| match c {
+        '\n' | '"' => true,
+        _ => false,
+
+    };
+
+    buff.push('"');
+    for (start, part) in s.match_indices(matcher) {
+        buff.push_str(unsafe { s.get_unchecked(last_end..start) });
+        match part {
+            "\n" => buff.push_str("\\n"),
+            "\"" => buff.push_str("\\\""),
+            _ => (),
+        }
+        last_end = start + part.len();
+    }
+    buff.push_str(unsafe { s.get_unchecked(last_end..s.len()) });
+    buff.push('"')
+}
+
+/// Returns a new string, with the tag escaped version of `s`.
 pub fn escape_tagstr(s: &str) -> String {
     let mut new_s = String::with_capacity(s.len()+16);
     build_escapedtagstr(s, &mut new_s);
     new_s
 }
 
+/// Returns a new string, with the field escaped version of `s`.
 pub fn escape_fieldstr(s: &str) -> String {
     let mut result = String::new();
     build_escapedfieldstr(s, &mut result);
