@@ -7,6 +7,23 @@ extern crate criterion;
 
 use criterion::{Criterion, BatchSize};
 
+#[derive(Metric)]
+#[segment(measurement="stringtest")]
+pub struct StringTest {
+    #[segment(time)]
+    timestamp: Duration,
+
+    #[segment(tag)]
+    tag0: String,
+    #[segment(tag)]
+    tag1: String,
+
+    #[segment(field)]
+    field0: String,
+    #[segment(field)]
+    field1: String,
+}
+
 // Define a metric..
 #[derive(Metric)]
 #[segment(measurement="procstat")]
@@ -195,8 +212,24 @@ fn criterion_benchmark(c: &mut Criterion) {
             || String::with_capacity(3048),
             |buffer: &mut String| {
                 procstats.build(buffer);
-                //assert!(buffer.len() > 0, "empty string returned");
-                //assert!(buffer == "procstat,exe=bash,process_name=bash cpu_time=0i,cpu_time_guest=0,cpu_time_guest_nice=0,cpu_time_idle=0,cpu_time_iowait=0,cpu_time_irq=0,cpu_time_nice=0,cpu_time_soft_irq=0,cpu_time_steal=0,cpu_time_stolen=0,cpu_time_system=0,cpu_time_user=0.02,cpu_usage=0,involuntary_context_switches=2i,memory_data=1576960i,memory_locked=0i,memory_rss=5103616i,memory_stack=139264i,memory_swap=0i,memory_vms=21659648i,nice_priority=20i,num_fds=4i,num_threads=1i,pid=29417i,read_bytes=0i,read_count=259i,realtime_priority=0i,rlimit_cpu_time_hard=2147483647i,rlimit_cpu_time_soft=2147483647i,rlimit_file_locks_hard=2147483647i,rlimit_file_locks_soft=2147483647i,rlimit_memory_data_hard=2147483647i,rlimit_memory_data_soft=2147483647i,rlimit_memory_locked_hard=65536i,rlimit_memory_locked_soft=65536i,rlimit_memory_rss_hard=2147483647i,rlimit_memory_rss_soft=2147483647i,rlimit_memory_stack_hard=2147483647i,rlimit_memory_stack_soft=8388608i,rlimit_memory_vms_hard=2147483647i,rlimit_memory_vms_soft=2147483647i,rlimit_nice_priority_hard=0i,rlimit_nice_priority_soft=0i,rlimit_num_fds_hard=4096i,rlimit_num_fds_soft=1024i,rlimit_realtime_priority_hard=0i,rlimit_realtime_priority_soft=0i,rlimit_signals_pending_hard=78994i,rlimit_signals_pending_soft=78994i,signals_pending=0i,voluntary_context_switches=42i,write_bytes=106496i,write_count=35i 1517620624000000000");
+                buffer.clear();
+            },
+            BatchSize::SmallInput
+        )
+    });
+
+    let strings = StringTest{
+        timestamp: t,
+        tag0: "Taggy Tag Tag".to_string(),
+        tag1: "tag\ntag tag".to_string(),
+        field0: "Hello world, hello world".to_string(),
+        field1: "hello \n World, hello there".to_string(),
+    };
+    c.bench_function("stringfields", move |b| {
+        b.iter_batched_ref(
+            || String::with_capacity(128),
+            |buffer: &mut String| {
+                strings.build(buffer);
                 buffer.clear();
             },
             BatchSize::SmallInput
